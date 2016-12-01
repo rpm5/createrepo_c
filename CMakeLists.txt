@@ -41,6 +41,17 @@ include_directories(${GLIB2_INCLUDE_DIRS})
 include_directories(${LIBXML2_INCLUDE_DIR})
 
 
+IF (RPM5)
+
+    MESSAGE (STATUS "Enabling RPM 5 support")
+    ADD_DEFINITIONS (-DRPM5)
+    FIND_PACKAGE (PkgConfig REQUIRED)
+    PKG_CHECK_MODULES (RPM REQUIRED rpm)
+    INCLUDE_DIRECTORIES (${RPM_INCLUDE_DIRS})
+    SET(RPMDB_LIBRARY ${RPM_LIBRARY_DIRS})
+
+ELSE (RPM5)
+
 IF (RPM_PATH)
     SET (RPM_PATH "/home/tmlcoch/git/rpm")
     include_directories("${RPM_PATH}/include/")
@@ -68,6 +79,9 @@ ELSE (RPM_PATH)
 
     message("Using system RPM: ${RPMDB_LIBRARY}")
 ENDIF (RPM_PATH)
+
+ENDIF (RPM5)
+
 
 # SuSE legacy weak deps support
 OPTION (ENABLE_LEGACY_WEAKDEPS "Enable legacy SUSE weakdeps support?" OFF)
