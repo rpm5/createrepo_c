@@ -23,6 +23,12 @@
 #include "parsehdr.h"
 
 #ifdef	RPM5
+#include <sys/stat.h>
+#define	_RPMEVR_INTERNAL
+#include <rpmevr.h>
+#warning FIXME: expose RPMSENSE_SCRIPT_PRE/POST
+#define	RPMSENSE_SCRIPT_PRE	(1 << 9)
+#define RPMSENSE_SCRIPT_POST	(1 << 10)
 #include <rpmfi.h>
 #else	/* RPM5 */
 #include <rpm/rpmfi.h>
@@ -276,8 +282,82 @@ cr_package_from_header(Header hdr,
     GHashTable *filenames_hashtable = g_hash_table_new(g_str_hash, g_str_equal);
 
 #ifdef	RPM5
-#warning FIXME: file data.
+
+    HE_t FILENAMEShe = (HE_t) memset(alloca(sizeof(*FILENAMEShe)), 0, sizeof(*FILENAMEShe));
+    FILENAMEShe->tag = RPMTAG_FILEPATHS;
+
+    HE_t DIRINDEXEShe = (HE_t) memset(alloca(sizeof(*DIRINDEXEShe)), 0, sizeof(*DIRINDEXEShe));
+    DIRINDEXEShe->tag = RPMTAG_DIRINDEXES;
+
+    HE_t BASENAMEShe = (HE_t) memset(alloca(sizeof(*BASENAMEShe)), 0, sizeof(*BASENAMEShe));
+    BASENAMEShe->tag = RPMTAG_BASENAMES;
+
+    HE_t FILEFLAGShe = (HE_t) memset(alloca(sizeof(*FILEFLAGShe)), 0, sizeof(*FILEFLAGShe));
+    FILEFLAGShe->tag = RPMTAG_FILEFLAGS;
+
+    HE_t FILEMODEShe = (HE_t) memset(alloca(sizeof(*FILEMODEShe)), 0, sizeof(*FILEMODEShe));
+    FILEMODEShe->tag = RPMTAG_FILEMODES;
+
+    HE_t DIRNAMEShe = (HE_t) memset(alloca(sizeof(*DIRNAMEShe)), 0, sizeof(*DIRNAMEShe));
+    DIRNAMEShe->tag = RPMTAG_DIRNAMES;
+
+    // Create list of pointer to directory names
+
+    int dir_count;
+    char ** dir_list = NULL;
+    if (headerGet(hdr, DIRNAMEShe, 0)) {
+	dir_count = DIRNAMEShe->c;
+        dir_list = malloc(sizeof(char *) * dir_count);
+	for (unsigned x = 0; x < dir_count; x++) {
+	    const char * dn = DIRNAMEShe->p.argv[x];
+            dir_list[x] = cr_safe_string_chunk_insert(pkg->chunk, dn);
+        }
+    }
+
+    if (headerGet(hdr, FILENAMEShe,  0) &&
+        headerGet(hdr, DIRINDEXEShe, 0) &&
+        headerGet(hdr, BASENAMEShe,  0) &&
+        headerGet(hdr, FILEFLAGShe,  0) &&
+        headerGet(hdr, FILEMODEShe,  0))
+    {
+	for (unsigned x = 0; x < BASENAMEShe->c; x++) {
+
+            cr_PackageFile *packagefile = cr_package_file_new();
+            packagefile->name = cr_safe_string_chunk_insert(pkg->chunk,
+                                                        BASENAMEShe->p.argv[x]);
+            packagefile->path = (dir_list) ? dir_list[(int) DIRINDEXEShe->p.ui32p[x] ] : "";
+
+            if (S_ISDIR(FILEMODEShe->p.ui16p[x])) {
+                // Directory
+                packagefile->type = cr_safe_string_chunk_insert(pkg->chunk, "dir");
+            } else if (FILEFLAGShe->p.ui32p[x] & RPMFILE_GHOST) {
+                // Ghost
+                packagefile->type = cr_safe_string_chunk_insert(pkg->chunk, "ghost");
+            } else {
+                // Regular file
+                packagefile->type = cr_safe_string_chunk_insert(pkg->chunk, "");
+            }
+
+            g_hash_table_replace(filenames_hashtable,
+                                 (gpointer) FILENAMEShe->p.argv[x],
+                                 (gpointer) FILENAMEShe->p.argv[x]);
+            pkg->files = g_slist_prepend(pkg->files, packagefile);
+        }
+        pkg->files = g_slist_reverse (pkg->files);
+    }
+
+    if (DIRNAMEShe->p.ptr) free(DIRNAMEShe->p.ptr);
+    if (DIRINDEXEShe->p.ptr) free(DIRINDEXEShe->p.ptr);
+    if (BASENAMEShe->p.ptr) free(BASENAMEShe->p.ptr);
+    if (FILEFLAGShe->p.ptr) free(FILEFLAGShe->p.ptr);
+    if (FILEMODEShe->p.ptr) free(FILEMODEShe->p.ptr);
+
+    if (dir_list) {
+        free((void *) dir_list);
+    }
+
 #else	/* RPM5 */
+
     rpmtd full_filenames = rpmtdNew(); // Only for filenames_hashtable
     rpmtd indexes   = rpmtdNew();
     rpmtd filenames = rpmtdNew();
@@ -380,7 +460,176 @@ cr_package_from_header(Header hdr,
 
 #ifdef	RPM5
 
-#warning FIXME: PRCO data.
+    HE_t Nhe = (HE_t) memset(alloca(sizeof(*Nhe)), 0, sizeof(*Nhe));
+    HE_t Fhe = (HE_t) memset(alloca(sizeof(*Fhe)), 0, sizeof(*Fhe));
+    HE_t EVRhe = (HE_t) memset(alloca(sizeof(*EVRhe)), 0, sizeof(*EVRhe));
+
+    for (int deptype=0; dep_items[deptype].type != DEP_SENTINEL; deptype++) {
+	Nhe->tag = dep_items[deptype].nametag;
+	Fhe->tag = dep_items[deptype].flagstag;
+	EVRhe->tag = dep_items[deptype].versiontag;
+        if (headerGet(hdr, Nhe, 0) &&
+            headerGet(hdr, Fhe, 0) &&
+            headerGet(hdr, EVRhe, 0))
+        {
+            // Because we have to select only libc.so with highest version
+            // e.g. libc.so.6(GLIBC_2.4)
+            cr_Dependency *libc_require_highest = NULL;
+
+	    for (unsigned x = 0; x < Nhe->c; x++) {
+                int pre = 0;
+                const char *filename = Nhe->p.argv[x];
+                guint64 num_flags = Fhe->p.ui32p[x];
+                const char *flags = cr_flag_to_str(num_flags);
+                const char *full_version = EVRhe->p.argv[x];
+
+                // Requires specific stuff
+                if (deptype == DEP_REQUIRES) {
+                    // Skip requires which start with "rpmlib("
+                    if (!strncmp("rpmlib(", filename, 7)) {
+                        continue;
+                    }
+
+                    // Skip package primary files
+                    if (g_hash_table_lookup_extended(filenames_hashtable, filename, NULL, NULL)) {
+                        if (cr_is_primary(filename)) {
+                            continue;
+                        }
+                    }
+
+                    // Skip files which are provided
+                    if (g_hash_table_lookup_extended(provided_hashtable, filename, NULL, NULL)) {
+                        continue;
+                    }
+
+                    // Calculate pre value
+                    if (num_flags & (RPMSENSE_PREREQ |
+                                     RPMSENSE_SCRIPT_PRE |
+                                     RPMSENSE_SCRIPT_POST))
+                    {
+                        pre = 1;
+                    }
+
+                    // Skip duplicate files
+                    gpointer value;
+                    if (g_hash_table_lookup_extended(ap_hashtable, filename, NULL, &value)) {
+                        struct ap_value_struct *ap_value = value;
+                        if (!g_strcmp0(ap_value->flags, flags) &&
+                            !strcmp(ap_value->version, full_version) &&
+                            (ap_value->pre == pre))
+                        {
+                            continue;
+                        }
+                    }
+                }
+
+                // Parse dep string
+                cr_EVR *evr = cr_str_to_evr(full_version, pkg->chunk);
+                if ((full_version && *full_version) && !evr->epoch) {
+                    // NULL in epoch mean that the epoch was bad (non-numerical)
+                    _cleanup_free_ gchar *pkg_nevra = cr_package_nevra(pkg);
+                    g_warning("Bad epoch in version string \"%s\" for dependency \"%s\" in package \"%s\"",
+                              full_version, filename, pkg_nevra);
+                    g_warning("Skipping this dependency");
+                    g_free(evr);
+                    continue;
+                }
+
+                // Create dynamic dependency object
+                cr_Dependency *dependency = cr_dependency_new();
+                dependency->name = cr_safe_string_chunk_insert(pkg->chunk, filename);
+                dependency->flags = cr_safe_string_chunk_insert(pkg->chunk, flags);
+                dependency->epoch = evr->epoch;
+                dependency->version = evr->version;
+                dependency->release = evr->release;
+                g_free(evr);
+
+                switch (deptype) {
+                    case DEP_PROVIDES:
+                        g_hash_table_replace(provided_hashtable, dependency->name, dependency->name);
+                        pkg->provides = g_slist_prepend(pkg->provides, dependency);
+                        break;
+                    case DEP_CONFLICTS:
+                        pkg->conflicts = g_slist_prepend(pkg->conflicts, dependency);
+                        break;
+                    case DEP_OBSOLETES:
+                        pkg->obsoletes = g_slist_prepend(pkg->obsoletes, dependency);
+                        break;
+                    case DEP_REQUIRES:
+                        dependency->pre = pre;
+
+                        // XXX: libc.so filtering ////////////////////////////
+                        if (g_str_has_prefix(dependency->name, "libc.so.6")) {
+                            if (!libc_require_highest)
+                                libc_require_highest = dependency;
+                            else {
+                                if (cr_compare_dependency(libc_require_highest->name,
+                                                       dependency->name) == 2)
+                                {
+                                    g_free(libc_require_highest);
+                                    libc_require_highest = dependency;
+                                } else
+                                    g_free(dependency);
+                            }
+                            break;
+                        }
+                        // XXX: libc.so filtering - END ///////////////////////
+
+                        pkg->requires = g_slist_prepend(pkg->requires, dependency);
+
+                        // Add file into ap_hashtable
+                        struct ap_value_struct *value = malloc(sizeof(struct ap_value_struct));
+                        value->flags = flags;
+                        value->version = full_version;
+                        value->pre = dependency->pre;
+                        g_hash_table_replace(ap_hashtable, dependency->name, value);
+                        break; //case REQUIRES end
+                    case DEP_SUGGESTS:
+                        pkg->suggests = g_slist_prepend(pkg->suggests, dependency);
+                        break;
+                    case DEP_ENHANCES:
+                        pkg->enhances = g_slist_prepend(pkg->enhances, dependency);
+                        break;
+                    case DEP_RECOMMENDS:
+                        pkg->recommends = g_slist_prepend(pkg->recommends, dependency);
+                        break;
+                    case DEP_SUPPLEMENTS:
+                        pkg->supplements = g_slist_prepend(pkg->supplements, dependency);
+                        break;
+#ifdef ENABLE_LEGACY_WEAKDEPS
+                    case DEP_OLDSUGGESTS:
+                        if ( num_flags & RPMSENSE_STRONG ) {
+                            pkg->recommends = g_slist_prepend(pkg->recommends, dependency);
+                        } else {
+                            pkg->suggests = g_slist_prepend(pkg->suggests, dependency);
+                        }
+                        break;
+                    case DEP_OLDENHANCES:
+                        if ( num_flags & RPMSENSE_STRONG ) {
+                            pkg->supplements = g_slist_prepend(pkg->supplements, dependency);
+                        } else {
+                            pkg->enhances = g_slist_prepend(pkg->enhances, dependency);
+                        }
+                        break;
+#endif
+                } // Switch end
+	    }	// For items end
+        }
+
+        if (Nhe->p.ptr) free(Nhe->p.ptr);
+        if (Fhe->p.ptr) free(Fhe->p.ptr);
+        if (EVRhe->p.ptr) free(EVRhe->p.ptr);
+    }
+
+    pkg->provides    = g_slist_reverse (pkg->provides);
+    pkg->conflicts   = g_slist_reverse (pkg->conflicts);
+    pkg->obsoletes   = g_slist_reverse (pkg->obsoletes);
+    pkg->requires    = g_slist_reverse (pkg->requires);
+    pkg->suggests    = g_slist_reverse (pkg->suggests);
+    pkg->enhances    = g_slist_reverse (pkg->enhances);
+    pkg->recommends  = g_slist_reverse (pkg->recommends);
+    pkg->supplements = g_slist_reverse (pkg->supplements);
+
     g_hash_table_remove_all(filenames_hashtable);
     g_hash_table_remove_all(provided_hashtable);
     g_hash_table_remove_all(ap_hashtable);
@@ -389,7 +638,10 @@ cr_package_from_header(Header hdr,
     g_hash_table_unref(provided_hashtable);
     g_hash_table_unref(ap_hashtable);
 
+    if (FILENAMEShe->p.ptr) free(FILENAMEShe->p.ptr);
+
 #else	/* RPM5 */
+
     rpmtd fileversions = rpmtdNew();
 
     for (int deptype=0; dep_items[deptype].type != DEP_SENTINEL; deptype++) {
