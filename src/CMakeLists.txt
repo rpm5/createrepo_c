@@ -2,7 +2,6 @@ SET (createrepo_c_SRCS
      checksum.c
      compression_wrapper.c
      createrepo_shared.c
-     deltarpms.c
      dumper_thread.c
      error.c
      helpers.c
@@ -18,7 +17,6 @@ SET (createrepo_c_SRCS
      threads.c
      updateinfo.c
      xml_dump.c
-     xml_dump_deltapackage.c
      xml_dump_filelists.c
      xml_dump_other.c
      xml_dump_primary.c
@@ -31,6 +29,13 @@ SET (createrepo_c_SRCS
      xml_parser_primary.c
      xml_parser_repomd.c
      xml_parser_updateinfo.c)
+
+IF (DRPM_LIBRARY)
+SET (createrepo_c_SRCS ${createrepo_c_SRCS}
+    deltarpms.c
+    xml_dump_deltapackage.c
+    )
+ENDIF()
 
 SET(headers
     checksum.h
