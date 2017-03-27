@@ -368,6 +368,21 @@ cr_safe_string_chunk_insert_null(GStringChunk *chunk, const char *str)
     return g_string_chunk_insert(chunk, str);
 }
 
+/** Safe insert into GStringChunk. If str is NULL or "\0" inserts nothing and
+ * returns NULL, with free the str afterwards.
+ * @param chunk     a GStringChunk
+ * @param str       string to add or NULL
+ * @return          pointer to the copy of str or NULL if str is NULL
+ */
+static inline gchar *
+cr_safe_string_chunk_insert_null_and_free(GStringChunk *chunk, char *str)
+{
+    if (!str) return NULL;
+    gchar *copy = (*str ? g_string_chunk_insert(chunk, str) : NULL);
+    g_free(str);
+    return copy;
+}
+
 
 /** Safe const insert into GStringChunk.
  * @param chunk     a GStringChunk
