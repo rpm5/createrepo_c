@@ -90,6 +90,7 @@ static DepItem dep_items[] = {
 };
 
 #ifdef	RPM5
+#define	rpmheFree(_he)	if (_he->p.ptr) { free(_he->p.ptr); _he->p.ptr = 0; }
 static
 const char * headerGetString(Header h, rpmTag tag)
 {
@@ -100,8 +101,7 @@ const char * headerGetString(Header h, rpmTag tag)
 	res = he->p.str;
 	he->p.ptr = NULL;
     }
-    if (he->p.ptr)
-	free(he->p.ptr);
+    rpmheFree(he);
     return (res ? res : strdup(""));
 }
 
@@ -113,10 +113,18 @@ uint64_t headerGetNumber(Header h, rpmTag tag)
     he->tag = tag;
     if (headerGet(h, he, 0) && he->t == RPM_UINT32_TYPE)
 	res = he->p.ui32p[0];
-    if (he->p.ptr)
-	free(he->p.ptr);
+    rpmheFree(he);
     return res;
 }
+#define	_cr_pkgstr(_pkg, _hdr, _tag) \
+    cr_safe_string_chunk_insert_and_free(_pkg->chunk, (char *)headerGetString(_hdr, _tag))
+#define	_cr_pkgstr_null(_pkg, _hdr, _tag) \
+    cr_safe_string_chunk_insert_null_and_free(_pkg->chunk, (char *)headerGetString(_hdr, _tag))
+#else
+#define	_cr_pkgstr(_pkg, _hdr, _tag) \
+    cr_safe_string_chunk_insert(_pkg->chunk, headerGetString(_hdr, _tag))
+#define	_cr_pkgstr_null(_pkg, _hdr, _tag) \
+    cr_safe_string_chunk_insert_null(_pkg->chunk, headerGetString(_hdr, _tag))
 #endif	/* RPM5 */
 
 static inline int
@@ -222,16 +230,16 @@ cr_package_from_header(Header hdr,
 
     // Fill package structure
 
-    pkg->name = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_NAME));
+    pkg->name = _cr_pkgstr(pkg, hdr, RPMTAG_NAME);
 
     gint64 is_src = headerGetNumber(hdr, RPMTAG_SOURCEPACKAGE);
     if (is_src) {
         pkg->arch = cr_safe_string_chunk_insert(pkg->chunk, "src");
     } else {
-        pkg->arch = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_ARCH));
+        pkg->arch = _cr_pkgstr(pkg, hdr, RPMTAG_ARCH);
     }
 
-    pkg->version = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_VERSION));
+    pkg->version = _cr_pkgstr(pkg, hdr, RPMTAG_VERSION);
 
 #define MAX_STR_INT_LEN 24
     char tmp_epoch[MAX_STR_INT_LEN];
@@ -240,10 +248,10 @@ cr_package_from_header(Header hdr,
     }
     pkg->epoch = g_string_chunk_insert_len(pkg->chunk, tmp_epoch, MAX_STR_INT_LEN);
 
-    pkg->release = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_RELEASE));
-    pkg->summary = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_SUMMARY));
-    pkg->description = cr_safe_string_chunk_insert_null(pkg->chunk, headerGetString(hdr, RPMTAG_DESCRIPTION));
-    pkg->url = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_URL));
+    pkg->release = _cr_pkgstr(pkg, hdr, RPMTAG_RELEASE);
+    pkg->summary = _cr_pkgstr(pkg, hdr, RPMTAG_SUMMARY);
+    pkg->description = _cr_pkgstr_null(pkg, hdr, RPMTAG_DESCRIPTION);
+    pkg->url = _cr_pkgstr(pkg, hdr, RPMTAG_URL);
 
 #ifdef	RPM5
     pkg->time_build = headerGetNumber(hdr, RPMTAG_BUILDTIME);
@@ -253,12 +261,12 @@ cr_package_from_header(Header hdr,
     }
 #endif	/* RPM5 */
 
-    pkg->rpm_license = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_LICENSE));
-    pkg->rpm_vendor = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_VENDOR));
-    pkg->rpm_group = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_GROUP));
-    pkg->rpm_buildhost = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_BUILDHOST));
-    pkg->rpm_sourcerpm = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_SOURCERPM));
-    pkg->rpm_packager = cr_safe_string_chunk_insert(pkg->chunk, headerGetString(hdr, RPMTAG_PACKAGER));
+    pkg->rpm_license = _cr_pkgstr(pkg, hdr, RPMTAG_LICENSE);
+    pkg->rpm_vendor = _cr_pkgstr(pkg, hdr, RPMTAG_VENDOR);
+    pkg->rpm_group = _cr_pkgstr(pkg, hdr, RPMTAG_GROUP);
+    pkg->rpm_buildhost = _cr_pkgstr(pkg, hdr, RPMTAG_BUILDHOST);
+    pkg->rpm_sourcerpm = _cr_pkgstr(pkg, hdr, RPMTAG_SOURCERPM);
+    pkg->rpm_packager = _cr_pkgstr(pkg, hdr, RPMTAG_PACKAGER);
 
 #ifdef	RPM5
     pkg->size_installed = headerGetNumber(hdr, RPMTAG_SIZE);
@@ -308,7 +316,7 @@ cr_package_from_header(Header hdr,
     if (headerGet(hdr, DIRNAMEShe, 0)) {
 	dir_count = DIRNAMEShe->c;
         dir_list = malloc(sizeof(char *) * dir_count);
-	for (unsigned x = 0; x < dir_count; x++) {
+	for (int x = 0; x < dir_count; x++) {
 	    const char * dn = DIRNAMEShe->p.argv[x];
             dir_list[x] = cr_safe_string_chunk_insert(pkg->chunk, dn);
         }
@@ -346,11 +354,11 @@ cr_package_from_header(Header hdr,
         pkg->files = g_slist_reverse (pkg->files);
     }
 
-    if (DIRNAMEShe->p.ptr) free(DIRNAMEShe->p.ptr);
-    if (DIRINDEXEShe->p.ptr) free(DIRINDEXEShe->p.ptr);
-    if (BASENAMEShe->p.ptr) free(BASENAMEShe->p.ptr);
-    if (FILEFLAGShe->p.ptr) free(FILEFLAGShe->p.ptr);
-    if (FILEMODEShe->p.ptr) free(FILEMODEShe->p.ptr);
+    rpmheFree(DIRNAMEShe);
+    rpmheFree(DIRINDEXEShe);
+    rpmheFree(BASENAMEShe);
+    rpmheFree(FILEFLAGShe);
+    rpmheFree(FILEMODEShe);
 
     if (dir_list) {
         free((void *) dir_list);
@@ -486,6 +494,12 @@ cr_package_from_header(Header hdr,
                 const char *flags = cr_flag_to_str(num_flags);
                 const char *full_version = EVRhe->p.argv[x];
 
+                _cleanup_free_ char *depnfv = NULL;  // Dep NameFlagsVersion
+                depnfv = g_strconcat(filename,
+                                     flags ? flags : "",
+                                     full_version ? full_version : "",
+                                     NULL);
+
                 // Requires specific stuff
                 if (deptype == DEP_REQUIRES) {
                     // Skip requires which start with "rpmlib("
@@ -501,7 +515,7 @@ cr_package_from_header(Header hdr,
                     }
 
                     // Skip files which are provided
-                    if (g_hash_table_lookup_extended(provided_hashtable, filename, NULL, NULL)) {
+                    if (g_hash_table_lookup_extended(provided_hashtable, depnfv, NULL, NULL)) {
                         continue;
                     }
 
@@ -548,10 +562,12 @@ cr_package_from_header(Header hdr,
                 g_free(evr);
 
                 switch (deptype) {
-                    case DEP_PROVIDES:
-                        g_hash_table_replace(provided_hashtable, dependency->name, dependency->name);
+                    case DEP_PROVIDES: {
+                        char *depnfv_dup = g_strdup(depnfv);
+                        g_hash_table_replace(provided_hashtable, depnfv_dup, NULL);
                         pkg->provides = g_slist_prepend(pkg->provides, dependency);
                         break;
+		    }
                     case DEP_CONFLICTS:
                         pkg->conflicts = g_slist_prepend(pkg->conflicts, dependency);
                         break;
@@ -619,9 +635,9 @@ cr_package_from_header(Header hdr,
 	    }	// For items end
         }
 
-        if (Nhe->p.ptr) free(Nhe->p.ptr);
-        if (Fhe->p.ptr) free(Fhe->p.ptr);
-        if (EVRhe->p.ptr) free(EVRhe->p.ptr);
+	rpmheFree(Nhe);
+	rpmheFree(Fhe);
+	rpmheFree(EVRhe);
     }
 
     pkg->provides    = g_slist_reverse (pkg->provides);
@@ -641,7 +657,7 @@ cr_package_from_header(Header hdr,
     g_hash_table_unref(provided_hashtable);
     g_hash_table_unref(ap_hashtable);
 
-    if (FILENAMEShe->p.ptr) free(FILENAMEShe->p.ptr);
+    rpmheFree(FILENAMEShe);
 
 #else	/* RPM5 */
 
@@ -911,9 +927,9 @@ cr_package_from_header(Header hdr,
             }
 	}
     }
-    if (TIMEhe->p.ptr) free(TIMEhe->p.ptr);
-    if (NAMEhe->p.ptr) free(NAMEhe->p.ptr);
-    if (TEXThe->p.ptr) free(TEXThe->p.ptr);
+    rpmheFree(TIMEhe);
+    rpmheFree(NAMEhe);
+    rpmheFree(TEXThe);
 
 #else	/* RPM5 */
 
@@ -995,8 +1011,7 @@ cr_package_from_header(Header hdr,
     //
 
     if (hdrrflags & CR_HDRR_LOADHDRID)
-        pkg->hdrid = cr_safe_string_chunk_insert(pkg->chunk,
-                                                 headerGetString(hdr, RPMTAG_HDRID));
+        pkg->hdrid = _cr_pkgstr(pkg, hdr, RPMTAG_HDRID);
 
     if (hdrrflags & CR_HDRR_LOADSIGNATURES) {
 #ifdef	RPM5
@@ -1009,7 +1024,7 @@ cr_package_from_header(Header hdr,
                                                           he->p.ptr,
                                                           he->c);
         }
-        if (he->p.ptr) free(he->p.ptr);
+	rpmheFree(he);
 
         he->tag = RPMTAG_SIGPGP;
         if (headerGet(hdr, he, 0) && he->t == RPM_BIN_TYPE && he->c > 0) {
@@ -1019,7 +1034,7 @@ cr_package_from_header(Header hdr,
                                                           he->p.ptr,
                                                           he->c);
         }
-        if (he->p.ptr) free(he->p.ptr);
+	rpmheFree(he);
 #else	/* RPM5 */
         rpmtd gpgtd = rpmtdNew();
         rpmtd pgptd = rpmtdNew();
