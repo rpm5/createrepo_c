@@ -1024,7 +1024,9 @@ cr_package_from_header(Header hdr,
                                                           he->p.ptr,
                                                           he->c);
         }
+#ifdef	HACK
 	rpmheFree(he);
+#endif
 
         he->tag = RPMTAG_SIGPGP;
         if (headerGet(hdr, he, 0) && he->t == RPM_BIN_TYPE && he->c > 0) {
@@ -1034,7 +1036,9 @@ cr_package_from_header(Header hdr,
                                                           he->p.ptr,
                                                           he->c);
         }
+#ifdef	HACK
 	rpmheFree(he);
+#endif
 #else	/* RPM5 */
         rpmtd gpgtd = rpmtdNew();
         rpmtd pgptd = rpmtdNew();
