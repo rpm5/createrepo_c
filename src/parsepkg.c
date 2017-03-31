@@ -31,6 +31,7 @@
 #ifdef	RPM5
 #include <rpmio.h>
 #include <rpmmacro.h>
+#include <rpmcb.h>
 #include <pkgio.h>
 #include <rpmfi.h>
 #include <rpmts.h>
@@ -70,13 +71,18 @@ static gpointer
 cr_package_parser_init_once_cb(gpointer user_data G_GNUC_UNUSED)
 {
     rpmReadConfigFiles(NULL, NULL);
+#ifdef	RPM5_XXX
+rpmIncreaseVerbosity();
+rpmIncreaseVerbosity();
+#endif
     cr_ts = rpmtsCreate();
+
     if (!cr_ts)
         g_critical("%s: rpmtsCreate() failed", __func__);
 
     rpmVSFlags vsflags = 0;
-    vsflags |= _RPMVSF_NODIGESTS;
     vsflags |= _RPMVSF_NOSIGNATURES;
+    vsflags |= _RPMVSF_NODIGESTS;
     vsflags |= RPMVSF_NOHDRCHK;
     rpmtsSetVSFlags(cr_ts, vsflags);
     return NULL;
@@ -97,8 +103,13 @@ cr_package_parser_cleanup_once_cb(gpointer user_data G_GNUC_UNUSED)
         cr_ts = NULL;
     }
 
+#ifdef	RPM5
+    rpmMacrofiles = NULL;
+    (void) rpmcliFini(NULL);
+#else
     rpmFreeMacros(NULL);
     rpmFreeRpmrc();
+#endif
     return NULL;
 }
 
@@ -124,7 +135,12 @@ read_header(const char *filename, Header *hdr, GError **err)
         return FALSE;
     }
 
+#ifdef	RPM5
+    int rc = rpmReadPackageFile(cr_ts, fd, filename, hdr);
+#else
     int rc = rpmReadPackageFile(cr_ts, fd, NULL, hdr);
+#endif
+    Fclose(fd);
     if (rc != RPMRC_OK) {
         switch (rc) {
             case RPMRC_NOKEY:
@@ -140,12 +156,10 @@ read_header(const char *filename, Header *hdr, GError **err)
                           __func__);
                 g_set_error(err, ERR_DOMAIN, CRE_IO,
                             "rpmReadPackageFile() error");
-                Fclose(fd);
                 return FALSE;
         }
     }
 
-    Fclose(fd);
     return TRUE;
 }
 
@@ -155,16 +169,27 @@ cr_package_from_rpm_base(const char *filename,
                          cr_HeaderReadingFlags flags,
                          GError **err)
 {
-    Header hdr;
-    cr_Package *pkg;
+    Header hdr = NULL;
+    cr_Package *pkg = NULL;
 
     assert(filename);
     assert(!err || *err == NULL);
 
-    if (!read_header(filename, &hdr, err))
-        return NULL;
+#ifdef	RPM5
+    G_LOCK_DEFINE_STATIC(mutex_rpm);
+    G_LOCK(mutex_rpm);
+#endif
 
-    pkg = cr_package_from_header(hdr, changelog_limit, flags, err);
+    gboolean bingo = read_header(filename, &hdr, err);
+
+    if (bingo)
+	pkg = cr_package_from_header(hdr, changelog_limit, flags, err);
+
+#ifdef	RPM5
+    G_UNLOCK(mutex_rpm);
+    g_thread_yield();
+#endif
+
     headerFree(hdr);
     return pkg;
 }
