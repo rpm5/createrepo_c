@@ -39,6 +39,9 @@ cr_xml_dump_init()
 void
 cr_xml_dump_cleanup()
 {
+#ifdef	RPM5
+    xmlCleanupGlobals();
+#endif
     xmlCleanupParser();
 }
 

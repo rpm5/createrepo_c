@@ -469,7 +469,7 @@ cr_package_from_header(Header hdr,
                                                      NULL,
                                                      free);
 
-#ifdef	RPM5
+#ifdef RPM5
 
     HE_t Nhe = (HE_t) memset(alloca(sizeof(*Nhe)), 0, sizeof(*Nhe));
     HE_t Fhe = (HE_t) memset(alloca(sizeof(*Fhe)), 0, sizeof(*Fhe));
@@ -633,6 +633,12 @@ cr_package_from_header(Header hdr,
 #endif
                 } // Switch end
 	    }	// For items end
+
+            // XXX: libc.so filtering ////////////////////////////////
+            if (deptype == DEP_REQUIRES && libc_require_highest)
+                pkg->requires = g_slist_prepend(pkg->requires, libc_require_highest);
+            // XXX: libc.so filtering - END ////////////////////////////////
+
         }
 
 	rpmheFree(Nhe);
