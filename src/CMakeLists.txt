@@ -62,6 +62,7 @@ SET(headers
     xml_parser.h)
 
 ADD_LIBRARY(libcreaterepo_c SHARED ${createrepo_c_SRCS})
+ADD_SANITIZERS(libcreaterepo_c)
 TARGET_LINK_LIBRARIES(libcreaterepo_c ${BZIP2_LIBRARIES})
 TARGET_LINK_LIBRARIES(libcreaterepo_c ${CURL_LIBRARY})
 TARGET_LINK_LIBRARIES(libcreaterepo_c ${EXPAT_LIBRARIES})
@@ -85,24 +86,28 @@ SET_TARGET_PROPERTIES(libcreaterepo_c PROPERTIES
                       COMPILE_DEFINITIONS "G_LOG_DOMAIN=\"${G_LOG_DOMAIN}\"")
 
 ADD_EXECUTABLE(createrepo_c createrepo_c.c cmd_parser.c)
+ADD_SANITIZERS(createrepo_c)
 TARGET_LINK_LIBRARIES(createrepo_c
                         libcreaterepo_c
                         ${GLIB2_LIBRARIES}
                         ${GTHREAD2_LIBRARIES})
 
 ADD_EXECUTABLE(mergerepo_c mergerepo_c.c)
+ADD_SANITIZERS(mergerepo_c)
 TARGET_LINK_LIBRARIES(mergerepo_c
                         libcreaterepo_c
                         ${GLIB2_LIBRARIES}
                         ${GTHREAD2_LIBRARIES})
 
 ADD_EXECUTABLE(modifyrepo_c modifyrepo_c.c)
+ADD_SANITIZERS(modifyrepo_c)
 TARGET_LINK_LIBRARIES(modifyrepo_c
                         libcreaterepo_c
                         ${GLIB2_LIBRARIES}
                         ${GTHREAD2_LIBRARIES})
 
 ADD_EXECUTABLE(sqliterepo_c sqliterepo_c.c)
+ADD_SANITIZERS(sqliterepo_c)
 TARGET_LINK_LIBRARIES(sqliterepo_c
                         libcreaterepo_c
                         ${GLIB2_LIBRARIES}

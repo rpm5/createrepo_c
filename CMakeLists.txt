@@ -21,6 +21,8 @@ ENDIF()
 
 INCLUDE_DIRECTORIES (${CMAKE_SOURCE_DIR})
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
+# XXX See https://github.com/arsenm/sanitizers-cmake
+set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/externals/sanitizers-cmake/cmake" ${CMAKE_MODULE_PATH})
 
 IF (MACOSX)
     MESSAGE(STATUS "Building for Mac OS X")
@@ -32,6 +34,7 @@ SET(G_LOG_DOMAIN "C_CREATEREPOLIB")
 
 # Find necessary libraries
 
+find_package(Sanitizers)
 find_package(BZip2 REQUIRED)
 find_package(CURL REQUIRED)
 find_package(EXPAT REQUIRED)
