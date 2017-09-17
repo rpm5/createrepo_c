@@ -102,29 +102,40 @@ cr_str_to_evr(const char *string, GStringChunk *chunk)
     const char *ptr;  // These names are totally self explaining
     const char *ptr2; //
 
+    // As we're possibly going to manipulate the string, we need to copy it...
+    gchar *newevr_string = g_strdup(string);
+
+    // Check for DistEpoch and disable it in the string accordingly
+    gboolean detected_distepoch = FALSE;
+    char *distepoch = g_strrstr(newevr_string, ":");
+    if (distepoch && (strstr(distepoch, "-") == 0)) {
+        // This is definitely DistEpoch, disable it!
+        *distepoch = '\0';
+        detected_distepoch = TRUE;
+    }
 
     // Epoch
     gboolean bad_epoch = FALSE;
 
-    ptr = strstr(string, ":");
+    ptr = strstr(newevr_string, ":");
     if (ptr) {
         // Check if epoch str is a number
         char *p = NULL;
-        strtol(string, &p, 10);
+        strtol(newevr_string, &p, 10);
         if (p == ptr) { // epoch str seems to be a number
-            size_t len = ptr - string;
+            size_t len = ptr - newevr_string;
             if (len) {
                 if (chunk) {
-                    evr->epoch = g_string_chunk_insert_len(chunk, string, len);
+                    evr->epoch = g_string_chunk_insert_len(chunk, newevr_string, len);
                 } else {
-                    evr->epoch = g_strndup(string, len);
+                    evr->epoch = g_strndup(newevr_string, len);
                 }
             }
         } else { // Bad (non-numerical) epoch
             bad_epoch = TRUE;
         }
     } else { // There is no epoch
-        ptr = (char*) string-1;
+        ptr = (char*) newevr_string-1;
     }
 
     if (!evr->epoch && !bad_epoch) {
@@ -149,6 +160,10 @@ cr_str_to_evr(const char *string, GStringChunk *chunk)
         }
 
         // Release
+	if (detected_distepoch == TRUE) {
+            // If DistEpoch was detected before, let's restore it
+            *distepoch = ':';
+        }
         size_t release_len = strlen(ptr2+1);
         if (release_len) {
             if (chunk) {
@@ -165,6 +180,9 @@ cr_str_to_evr(const char *string, GStringChunk *chunk)
             evr->version = g_strdup(ptr+1);
         }
     }
+
+    // Free up newevr_string
+    g_free(newevr_string);
 
     return evr;
 }
